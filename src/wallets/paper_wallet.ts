@@ -3,15 +3,24 @@ import { FillSimulator } from '../paper_trading/fill_simulator';
 import { PnlTracker } from '../paper_trading/pnl_tracker';
 import { logger } from '../reporting/logs';
 import { consoleLog } from '../reporting/console_log';
+import { OrderbookStream } from '../data/orderbook_stream';
+import { ClobFetcher } from '../data/clob_fetcher';
 
 export class PaperWallet {
   private state: WalletState;
-  private readonly fillSimulator = new FillSimulator();
+  private readonly fillSimulator: FillSimulator;
   private readonly pnlTracker = new PnlTracker();
   private readonly trades: TradeRecord[] = [];
   private displayName: string = '';
 
-  constructor(config: WalletConfig, assignedStrategy: string) {
+  constructor(
+    config: WalletConfig,
+    assignedStrategy: string,
+    stream?: OrderbookStream,
+    clobFetcher?: ClobFetcher
+  ) {
+    this.displayName = config.id;
+    this.fillSimulator = new FillSimulator(stream, clobFetcher);
     this.displayName = config.id;
     this.state = {
       walletId: config.id,
@@ -67,7 +76,7 @@ export class PaperWallet {
     price: number;
     size: number;
   }): Promise<void> {
-    const fill = this.fillSimulator.simulate(request);
+    const fill = await this.fillSimulator.simulate(request);
 
     // Capture entry price BEFORE applyFill mutates the position
     // (on full close, applyFill resets avgPrice to 0)

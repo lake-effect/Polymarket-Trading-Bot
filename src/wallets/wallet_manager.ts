@@ -3,6 +3,9 @@ import { PolymarketWallet } from './polymarket_wallet';
 import { WalletState, WalletConfig, TradeRecord } from '../types';
 import { logger } from '../reporting/logs';
 
+import { OrderbookStream } from '../data/orderbook_stream';
+import { ClobFetcher } from '../data/clob_fetcher';
+
 export interface ExecutionWallet {
   getState(): WalletState;
   getTradeHistory(): TradeRecord[];
@@ -23,6 +26,15 @@ export interface ExecutionWallet {
 
 export class WalletManager {
   private readonly wallets = new Map<string, ExecutionWallet>();
+  private stream?: OrderbookStream;
+  private clobFetcher?: ClobFetcher;
+
+  /** Inject real-time dependencies so new PaperWallets can calculate VWAP slippage */
+  setPaperDependencies(stream: OrderbookStream, clobFetcher: ClobFetcher): void {
+    this.stream = stream;
+    this.clobFetcher = clobFetcher;
+    logger.info('WalletManager configured with live data dependencies for paper trading VWAP');
+  }
 
   registerWallet(config: WalletConfig, assignedStrategy: string, enableLive: boolean): void {
     if (this.wallets.has(config.id)) {
@@ -40,7 +52,7 @@ export class WalletManager {
     const wallet =
       config.mode === 'LIVE'
         ? new PolymarketWallet(config, assignedStrategy)
-        : new PaperWallet(config, assignedStrategy);
+        : new PaperWallet(config, assignedStrategy, this.stream, this.clobFetcher);
 
     this.wallets.set(config.id, wallet);
     const state = wallet.getState();

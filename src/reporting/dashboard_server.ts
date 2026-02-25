@@ -696,7 +696,7 @@ export class DashboardServer {
   constructor(
     private readonly walletManager: WalletManager,
     private readonly port = 3000,
-  ) {}
+  ) { }
 
   setWhaleApi(api: WhaleAPI): void {
     this.whaleApi = api;
@@ -994,7 +994,7 @@ export class DashboardServer {
           }
           if (Object.keys(rl).length > 0) {
             wallet.updateRiskLimits(rl);
-            changes.push(`riskLimits updated: ${Object.entries(rl).map(([k,v]) => `${k}=${v}`).join(', ')}`);
+            changes.push(`riskLimits updated: ${Object.entries(rl).map(([k, v]) => `${k}=${v}`).join(', ')}`);
           }
         } else {
           json(res, 400, { ok: false, error: 'This wallet type does not support risk limit updates' });
@@ -1039,15 +1039,15 @@ export class DashboardServer {
       /* Attach live config from YAML if available */
       const liveConfig = this.walletManager
         ? this.walletManager.listWallets()
-            .filter((w) => w.assignedStrategy === stratId)
-            .map((w) => ({
-              walletId: w.walletId,
-              mode: w.mode,
-              capital: w.capitalAllocated,
-              balance: Number(w.availableBalance.toFixed(4)),
-              pnl: Number(w.realizedPnl.toFixed(4)),
-              openPositions: w.openPositions.length,
-            }))
+          .filter((w) => w.assignedStrategy === stratId)
+          .map((w) => ({
+            walletId: w.walletId,
+            mode: w.mode,
+            capital: w.capitalAllocated,
+            balance: Number(w.availableBalance.toFixed(4)),
+            pnl: Number(w.realizedPnl.toFixed(4)),
+            openPositions: w.openPositions.length,
+          }))
         : [];
       json(res, 200, { ...entry, liveWallets: liveConfig });
       return;
@@ -3272,7 +3272,7 @@ function renderWhaleList(data){
         '<span class="whale-stat '+pnlCls+'"><span class="ws-val">'+(w.totalPnlBps>0?'+':'')+w.totalPnlBps+'</span> bps</span>'+
         '<span class="whale-stat"><span class="ws-val">'+w.consecutiveLosses+'</span> streak</span>'+
       '</div>'+
-      '<button class="whale-remove-btn" onclick="removeWhale(\''+w.address+'\')">\u2716 Remove</button>'+
+      '<button class="whale-remove-btn" onclick="removeWhale(&quot;'+w.address+'&quot;)">\u2716 Remove</button>'+
     '</div>';
   }).join('');
 }

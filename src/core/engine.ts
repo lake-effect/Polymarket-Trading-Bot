@@ -1,5 +1,6 @@
 import { Scheduler } from './scheduler';
 import { OrderbookStream } from '../data/orderbook_stream';
+import { ClobFetcher } from '../data/clob_fetcher';
 import { WalletManager } from '../wallets/wallet_manager';
 import { OrderRouter } from '../execution/order_router';
 import { StrategyInterface } from '../strategies/strategy_interface';
@@ -17,6 +18,7 @@ interface StrategyRunner {
 export class Engine {
   private readonly scheduler = new Scheduler();
   private readonly stream: OrderbookStream;
+  private readonly clobFetcher: ClobFetcher;
   private readonly runners: StrategyRunner[] = [];
   private readonly pausedWallets = new Set<string>();
 
@@ -27,6 +29,8 @@ export class Engine {
   ) {
     // Pass Gamma API URL from config to the OrderbookStream
     this.stream = new OrderbookStream(config.polymarket.gammaApi);
+    this.clobFetcher = new ClobFetcher(config.polymarket.clobApi);
+    this.walletManager.setPaperDependencies(this.stream, this.clobFetcher);
   }
 
   async initialize(): Promise<void> {
