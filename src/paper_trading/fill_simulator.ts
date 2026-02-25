@@ -25,6 +25,8 @@ export class FillSimulator {
     side: 'BUY' | 'SELL';
     price: number;
     size: number;
+    fee: number;
+    feeAsset: 'USDC' | 'SHARES';
     timestamp: number;
   }> {
     // Artificial latency estimate:
@@ -38,6 +40,8 @@ export class FillSimulator {
     let finalPrice = request.price;
     let fallbackUsed = true;
     let actualSize = request.size;
+    let fee = 0;
+    let feeAsset: 'USDC' | 'SHARES' = request.side === 'BUY' ? 'SHARES' : 'USDC';
 
     // Attempt VWAP from real L2 book
     if (this.stream && this.clobFetcher) {
@@ -46,7 +50,10 @@ export class FillSimulator {
         // Polymarket YES is always index 0, NO is index 1
         const tokenId = request.outcome === 'YES' ? market.clobTokenIds[0] : market.clobTokenIds[1];
         if (tokenId) {
-          const book = await this.clobFetcher.fetchOrderBook(tokenId);
+          const [book, feeInfo] = await Promise.all([
+            this.clobFetcher.fetchOrderBook(tokenId),
+            this.clobFetcher.fetchFeeRate(tokenId)
+          ]);
 
           if (book) {
             fallbackUsed = false;
@@ -82,6 +89,19 @@ export class FillSimulator {
               logger.error({ marketId: request.marketId }, 'Zero liquidity for paper trade. Failing fill.');
               throw new Error(`Insufficient liquidity to paper trade ${request.size} ${request.outcome}`);
             }
+
+            // Calculate precise maker/taker execution fee
+            if (feeInfo && feeInfo.rate > 0) {
+              const p = finalPrice;
+              // fee = C * feeRate * (p * (1 - p))^exponent
+              const rawFee = actualSize * feeInfo.rate * Math.pow(p * (1 - p), feeInfo.exponent);
+
+              const minFeeThreshold = 0.0001; // Polymarket threshold
+              if (rawFee >= minFeeThreshold) {
+                // Round to 4 decimal places as per Polymarket docs
+                fee = Math.round(rawFee * 10000) / 10000;
+              }
+            }
           }
         }
       }
@@ -98,6 +118,8 @@ export class FillSimulator {
       side: request.side,
       price: Number(finalPrice.toFixed(4)),
       size: actualSize,
+      fee,
+      feeAsset,
       timestamp: Date.now(),
     };
 

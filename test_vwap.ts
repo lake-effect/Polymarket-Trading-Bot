@@ -14,7 +14,7 @@ async function verifyVwapSlippage() {
     const sampleMarketId = 'test-market';
     // Example token ID for a random active market (we just need one to test the book fetch)
     // Let's first fetch *any* active market to get a real token ID
-    const fetcher = new (require('./src/data/market_fetcher').MarketFetcher)('https://gamma-api.polymarket.com', 50);
+    const fetcher = new (require('./src/data/market_fetcher').MarketFetcher)('https://gamma-api.polymarket.com', 400);
     const markets = await fetcher.fetchSnapshot();
 
     if (markets.length === 0) {
@@ -22,9 +22,29 @@ async function verifyVwapSlippage() {
         return;
     }
 
-    // Find a balanced market (probability ~0.5) to see a thicker order book
-    const m = markets.find((x: any) => x.outcomePrices[0] > 0.3 && x.outcomePrices[0] < 0.7) || markets[0];
-    console.log(`\nTesting liquidity on market: ${m.question}`);
+    // Find a Crypto market (these have fees enabled)
+    let m = markets[0];
+    let foundFee = false;
+    for (const market of markets) {
+        if (!market.clobTokenIds || !market.clobTokenIds[0]) continue;
+        try {
+            const tokenId = market.clobTokenIds[0];
+            const fetcherLocal = new ClobFetcher('https://clob.polymarket.com');
+            const data = await fetcherLocal.fetchFeeRate(tokenId);
+            if (data && data.rate > 0) {
+                m = market;
+                console.log(`[FEE MARKET FOUND] Rate: ${data.rate}, Exponent: ${data.exponent}`);
+                foundFee = true;
+                break;
+            }
+        } catch { }
+    }
+
+    if (!foundFee) {
+        console.warn('--- WARNING: Could not find a fee-enabled market dynamically. Test will run with 0 fees. ---');
+    }
+
+    console.log(`\nTesting liquidity and fees on market: ${m.question}`);
 
     // Mock the stream getMarket response
     (stream as any).cache = new Map();
@@ -54,25 +74,25 @@ async function verifyVwapSlippage() {
         let size = 10;
         console.log(`\nTest 1: Ordering $${size} notional...`);
         let fill = await simulator.simulate({ marketId: m.marketId, outcome, side, price, size });
-        console.log(`Result: Filled ${fill.size} shares @ $${fill.price.toFixed(4)}`);
+        console.log(`Result: Filled ${fill.size} shares @ $${fill.price.toFixed(4)} (Fee: ${fill.fee} ${fill.feeAsset})`);
 
         // Test 2: Medium order
         size = 1000;
         console.log(`\nTest 2: Ordering $${size} notional...`);
         fill = await simulator.simulate({ marketId: m.marketId, outcome, side, price, size });
-        console.log(`Result: Filled ${fill.size} shares @ $${fill.price.toFixed(4)}`);
+        console.log(`Result: Filled ${fill.size} shares @ $${fill.price.toFixed(4)} (Fee: ${fill.fee} ${fill.feeAsset})`);
 
         // Test 3: Massive block order (should incur huge slippage or fail)
         size = 100000;
         console.log(`\nTest 3: Ordering $${size} notional for massive slippage...`);
         fill = await simulator.simulate({ marketId: m.marketId, outcome, side, price, size });
-        console.log(`Result: Filled ${fill.size} shares @ $${fill.price.toFixed(4)}`);
+        console.log(`Result: Filled ${fill.size} shares @ $${fill.price.toFixed(4)} (Fee: ${fill.fee} ${fill.feeAsset})`);
 
         // Test 4: Extreme block order to wipe the first level
         size = 300000;
         console.log(`\nTest 4: Ordering $${size} notional to sweet multiple levels...`);
         fill = await simulator.simulate({ marketId: m.marketId, outcome, side, price, size });
-        console.log(`Result: Filled ${fill.size} shares @ $${fill.price.toFixed(4)}`);
+        console.log(`Result: Filled ${fill.size} shares @ $${fill.price.toFixed(4)} (Fee: ${fill.fee} ${fill.feeAsset})`);
 
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

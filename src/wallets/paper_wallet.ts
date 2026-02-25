@@ -93,6 +93,11 @@ export class PaperWallet {
     const cost = fill.price * fill.size * (fill.side === 'BUY' ? 1 : -1);
     this.state.availableBalance -= cost;
 
+    // Deduct exact USDC execution fees
+    if (fill.feeAsset === 'USDC' && fill.fee > 0) {
+      this.state.availableBalance -= fill.fee;
+    }
+
     this.trades.push({
       orderId: fill.orderId,
       walletId: this.state.walletId,
@@ -102,6 +107,8 @@ export class PaperWallet {
       price: fill.price,
       size: fill.size,
       cost: Math.abs(cost),
+      fee: fill.fee,
+      feeAsset: fill.feeAsset,
       realizedPnl: pnl.realized,
       cumulativePnl: this.state.realizedPnl,
       balanceAfter: this.state.availableBalance,
@@ -114,25 +121,33 @@ export class PaperWallet {
         marketId: fill.marketId,
         price: fill.price,
         size: fill.size,
+        fee: fill.fee,
+        feeAsset: fill.feeAsset
       },
-      `${this.state.walletId} PAPER fill ${fill.side} ${fill.outcome} market=${fill.marketId} price=${fill.price} size=${fill.size}`,
+      `${this.state.walletId} PAPER fill ${fill.side} ${fill.outcome} market=${fill.marketId} price=${fill.price} size=${fill.size} fee=${fill.fee} ${fill.feeAsset}`,
     );
 
-    consoleLog.success('FILL', `[${this.state.walletId}] ${fill.side} ${fill.outcome} ×${fill.size} @ $${fill.price} → PnL $${pnl.realized.toFixed(2)} | Bal $${this.state.availableBalance.toFixed(2)}`, {
-      walletId: this.state.walletId,
-      strategy: this.state.assignedStrategy,
-      orderId: fill.orderId,
-      marketId: fill.marketId,
-      outcome: fill.outcome,
-      side: fill.side,
-      price: fill.price,
-      size: fill.size,
-      cost: Math.abs(cost),
-      realizedPnl: Number(pnl.realized.toFixed(4)),
-      cumulativePnl: Number(this.state.realizedPnl.toFixed(4)),
-      balanceAfter: Number(this.state.availableBalance.toFixed(2)),
-      openPositions: this.state.openPositions.length,
-    });
+    consoleLog.success(
+      'FILL',
+      `[${this.state.walletId}] ${fill.side} ${fill.outcome} ×${fill.size} @ $${fill.price} (Fee: ${fill.fee.toFixed(4)} ${fill.feeAsset}) → PnL $${pnl.realized.toFixed(2)} | Bal $${this.state.availableBalance.toFixed(2)}`,
+      {
+        walletId: this.state.walletId,
+        strategy: this.state.assignedStrategy,
+        orderId: fill.orderId,
+        marketId: fill.marketId,
+        outcome: fill.outcome,
+        side: fill.side,
+        price: fill.price,
+        size: fill.size,
+        cost: Math.abs(cost),
+        fee: fill.fee,
+        feeAsset: fill.feeAsset,
+        realizedPnl: Number(pnl.realized.toFixed(4)),
+        cumulativePnl: Number(this.state.realizedPnl.toFixed(4)),
+        balanceAfter: Number(this.state.availableBalance.toFixed(2)),
+        openPositions: this.state.openPositions.length,
+      }
+    );
   }
 
   private applyFill(fill: {
@@ -141,6 +156,8 @@ export class PaperWallet {
     side: 'BUY' | 'SELL';
     price: number;
     size: number;
+    fee: number;
+    feeAsset: 'USDC' | 'SHARES';
   }): Position {
     const existing = this.state.openPositions.find(
       (pos) => pos.marketId === fill.marketId && pos.outcome === fill.outcome,
@@ -156,10 +173,17 @@ export class PaperWallet {
           realizedPnl: 0,
         };
       }
+
+      // If opening a new BUY position, deduct the share fee from the acquired size
+      let acquiredSize = fill.size;
+      if (fill.feeAsset === 'SHARES' && fill.fee > 0) {
+        acquiredSize -= fill.fee;
+      }
+
       const position: Position = {
         marketId: fill.marketId,
         outcome: fill.outcome,
-        size: fill.size,
+        size: acquiredSize,
         avgPrice: fill.price,
         realizedPnl: 0,
       };
@@ -168,8 +192,16 @@ export class PaperWallet {
     }
 
     if (fill.side === 'BUY') {
-      // Adding to position — update cost basis with weighted average
-      const newSize = existing.size + fill.size;
+      // Adding to position — deduct fee from Acquired Size, update cost basis with weighted average
+      let acquiredSize = fill.size;
+      if (fill.feeAsset === 'SHARES' && fill.fee > 0) {
+        acquiredSize -= fill.fee;
+      }
+
+      const newSize = existing.size + acquiredSize;
+
+      // We calculate avgPrice using the gross fill.price and gross fill.size because 
+      // the user still "paid" for the total fill amount in USDC. The lost shares are the fee.
       existing.avgPrice =
         (existing.avgPrice * existing.size + fill.price * fill.size) / newSize;
       existing.size = newSize;

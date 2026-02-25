@@ -56,6 +56,8 @@ export interface OrderFill {
   side: OrderSide;
   price: number;
   size: number;
+  fee: number;
+  feeAsset: 'USDC' | 'SHARES';
   timestamp: number;
 }
 
@@ -162,6 +164,8 @@ export interface TradeRecord {
   price: number;
   size: number;
   cost: number;
+  fee: number;
+  feeAsset: 'USDC' | 'SHARES';
   realizedPnl: number;
   cumulativePnl: number;
   balanceAfter: number;
