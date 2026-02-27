@@ -1,15 +1,15 @@
 environment:
-  enable_live_trading: false
+  enable_live_trading: true
 
 wallets:
-  - id: wallet_1
+  - id: live_cross_market_arb
     mode: LIVE
     strategy: cross_market_arbitrage
-    capital: 1000
+    capital: 100
     risk_limits:
-      max_position_size: 200
-      max_exposure_per_market: 300
-      max_daily_loss: 150
+      max_position_size: 20
+      max_exposure_per_market: 30
+      max_daily_loss: 15
       max_open_trades: 10
       max_drawdown: 0.2
 

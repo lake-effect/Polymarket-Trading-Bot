@@ -43,6 +43,7 @@ export class WhaleIngestion {
   private gammaApi: string;
   private config: WhaleTrackingConfig;
   private running = false;
+  private isPolling = false;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private requestTimestamps: number[] = [];
   private consecutiveErrors = 0;
@@ -79,7 +80,8 @@ export class WhaleIngestion {
   /* ━━━━━━━━━━━━━━ Poll cycle ━━━━━━━━━━━━━━ */
 
   private async pollCycle(): Promise<void> {
-    if (!this.running) return;
+    if (!this.running || this.isPolling) return;
+    this.isPolling = true;
     try {
       const { whales } = this.db.listWhales({ trackingEnabled: true, limit: 1000 });
       if (whales.length === 0) { return; }
@@ -103,6 +105,8 @@ export class WhaleIngestion {
         await this.sleep(60_000);
         this.consecutiveErrors = Math.floor(this.consecutiveErrors / 2);
       }
+    } finally {
+      this.isPolling = false;
     }
   }
 

@@ -115,6 +115,11 @@ export class PaperWallet {
       timestamp: fill.timestamp,
     });
 
+    const MAX_TRADES = 1000;
+    if (this.trades.length > MAX_TRADES) {
+      this.trades.splice(0, this.trades.length - MAX_TRADES);
+    }
+
     logger.info(
       {
         walletId: this.state.walletId,

@@ -15,6 +15,7 @@ export class OrderbookStream extends EventEmitter {
   /** Cache of latest data keyed by marketId so strategies see history */
   private readonly cache = new Map<string, MarketData>();
   private pollCount = 0;
+  private isPolling = false;
 
   constructor(gammaApi?: string, pollMs = 15_000) {
     super();
@@ -50,6 +51,8 @@ export class OrderbookStream extends EventEmitter {
   }
 
   private async poll(): Promise<void> {
+    if (this.isPolling) return;
+    this.isPolling = true;
     try {
       const markets = await this.fetcher.fetchSnapshot();
       const prevSize = this.cache.size;
@@ -69,6 +72,8 @@ export class OrderbookStream extends EventEmitter {
       logger.error({ error }, 'OrderbookStream poll failed');
       const msg = error instanceof Error ? error.message : String(error);
       consoleLog.error('SCAN', `Poll failed: ${msg}`, { error: msg });
+    } finally {
+      this.isPolling = false;
     }
   }
 }

@@ -118,7 +118,7 @@ class Semaphore {
   private current = 0;
   private queue: (() => void)[] = [];
 
-  constructor(private readonly max: number) {}
+  constructor(private readonly max: number) { }
 
   async acquire(): Promise<void> {
     if (this.current < this.max) { this.current++; return; }
@@ -767,7 +767,7 @@ export class WhaleScanner {
 
         /* ── Periodically rebuild profiles so results appear live ── */
         if (marketsProcessedThisBatch >= PROFILE_REBUILD_INTERVAL &&
-            marketsProcessedThisBatch % PROFILE_REBUILD_INTERVAL < newMarkets.length) {
+          marketsProcessedThisBatch % PROFILE_REBUILD_INTERVAL < newMarkets.length) {
           this.rebuildProfiles();
           const elapsed = (Date.now() - batchStart) / 1000;
           logger.info({
@@ -805,6 +805,7 @@ export class WhaleScanner {
         this.bigTradeAddresses.clear();
         this.state.marketsInCurrentBatch = 0;
         this.batchInProgress = false;
+        this.pruneUnboundedState();
         logger.info({ totalProfiles: this.latestProfiles.length, batch: this.state.batchNumber }, 'Scanner: full sweep done — resetting for fresh data');
         return;
       }
@@ -1177,7 +1178,7 @@ export class WhaleScanner {
         const netSellVol = mAgg.sells.reduce((s, b) => s + b.notional, 0);
         const netSide: 'BUY' | 'SELL' | 'NEUTRAL' =
           netBuyVol > netSellVol * 1.2 ? 'BUY' :
-          netSellVol > netBuyVol * 1.2 ? 'SELL' : 'NEUTRAL';
+            netSellVol > netBuyVol * 1.2 ? 'SELL' : 'NEUTRAL';
 
         const mktHoldHrs = pnlResult.holdTimesMs.length > 0
           ? pnlResult.holdTimesMs.reduce((a, b) => a + b, 0) / pnlResult.holdTimesMs.length / 3_600_000
@@ -1676,7 +1677,7 @@ export class WhaleScanner {
 
         const dominantSide: 'BUY' | 'SELL' | 'MIXED' =
           data.buys > data.sells * 1.5 ? 'BUY' :
-          data.sells > data.buys * 1.5 ? 'SELL' : 'MIXED';
+            data.sells > data.buys * 1.5 ? 'SELL' : 'MIXED';
 
         this.latestClusters.push({
           marketId,
@@ -2482,5 +2483,52 @@ export class WhaleScanner {
       exchange: 'manifold',
       marketsDiscovered: markets.length,
     }, 'Manifold scan complete');
+  }
+
+  /* ━━━━━━━━━━━━━━ Memory Management ━━━━━━━━━━━━━━ */
+
+  /**
+   * Prevents unbounded accumulators from exhausting the Node.js heap
+   * by pruning old trades and keeping map sizes below safety thresholds.
+   */
+  private pruneUnboundedState(): void {
+    const nowMs = Date.now();
+    const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+    for (const [addr, agg] of this.globalAgg) {
+      // 1. Remove addresses that haven't traded in MAX_AGE_MS
+      if (nowMs - new Date(agg.lastTradeTs).getTime() > MAX_AGE_MS) {
+        this.globalAgg.delete(addr);
+        continue;
+      }
+
+      // 2. Bound trades inner arrays and inactive markets
+      for (const [mktId, mAgg] of agg.markets) {
+        if (nowMs - new Date(mAgg.lastTradeTs).getTime() > MAX_AGE_MS) {
+          agg.markets.delete(mktId);
+          continue;
+        }
+
+        const MAX_TRADES = 2000;
+        if (mAgg.buys.length > MAX_TRADES) mAgg.buys.splice(0, mAgg.buys.length - MAX_TRADES);
+        if (mAgg.sells.length > MAX_TRADES) mAgg.sells.splice(0, mAgg.sells.length - MAX_TRADES);
+      }
+    }
+
+    // 3. Keep maximum number of addresses based on recency
+    const MAX_ADDRESSES = 20000;
+    if (this.globalAgg.size > MAX_ADDRESSES) {
+      const entries = Array.from(this.globalAgg.entries());
+      entries.sort((a, b) => new Date(b[1].lastTradeTs).getTime() - new Date(a[1].lastTradeTs).getTime());
+
+      this.globalAgg.clear();
+      for (let i = 0; i < MAX_ADDRESSES; i++) {
+        if (entries[i]) this.globalAgg.set(entries[i][0], entries[i][1]);
+      }
+    }
+
+    // 4. Clear unneeded wallet balances & copy simulations cache
+    if (this.walletBalances.size > MAX_ADDRESSES) this.walletBalances.clear();
+    if (this.copySimResults.size > 5000) this.copySimResults.clear();
   }
 }

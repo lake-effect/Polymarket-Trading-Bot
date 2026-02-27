@@ -51,7 +51,7 @@ export interface ConsoleEntry {
   data?: Record<string, unknown>;
 }
 
-const MAX_ENTRIES = 2000;
+const MAX_ENTRIES = 500;
 
 class ConsoleLogSingleton extends EventEmitter {
   private readonly buffer: ConsoleEntry[] = [];
