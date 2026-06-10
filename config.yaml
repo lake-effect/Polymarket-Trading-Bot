@@ -1,9 +1,9 @@
 environment:
-  enable_live_trading: true
+  enable_live_trading: false
 
 wallets:
   - id: live_cross_market_arb
-    mode: LIVE
+    mode: PAPER
     strategy: cross_market_arbitrage
     capital: 100
     risk_limits:

@@ -1,3 +1,4 @@
+import { ClobClient, Chain, ApiError } from '@polymarket/clob-client-v2';
 import { logger } from '../reporting/logs';
 
 export interface PricePoint {
@@ -7,13 +8,17 @@ export interface PricePoint {
 
 /**
  * Fetches real price history from the Polymarket CLOB API.
- * Uses the `/prices-history` endpoint with a given clobTokenId.
+ * Uses the official @polymarket/clob-client-v2 SDK.
  */
 export class TradeHistory {
-  private readonly clobApi: string;
+  private readonly client: ClobClient;
 
   constructor(clobApi = 'https://clob.polymarket.com') {
-    this.clobApi = clobApi;
+    this.client = new ClobClient({
+      host: clobApi,
+      chain: Chain.POLYGON,
+      throwOnError: false,
+    });
   }
 
   /**
@@ -27,24 +32,34 @@ export class TradeHistory {
     interval = '1d',
     fidelity = 60,
   ): Promise<PricePoint[]> {
-    const url = `${this.clobApi}/prices-history?market=${clobTokenId}&interval=${interval}&fidelity=${fidelity}`;
-
     try {
-      const response = await fetch(url);
-      if (!response.ok) {
-        logger.warn({ status: response.status, clobTokenId }, 'CLOB prices-history request failed');
+      const history = await this.client.getPricesHistory({
+        tokenID: clobTokenId,
+        interval: interval as any, // SDK type is stricter than needed
+        fidelity,
+      });
+
+      // SDK returns error object on failure
+      if (Array.isArray(history) && history.length > 0 && 'error' in history[0]) {
+        logger.warn({ error: (history[0] as any).error, clobTokenId }, 'CLOB getPricesHistory failed');
         return [];
       }
 
-      const data = (await response.json()) as { history: Array<{ t: number; p: number }> };
-      if (!data.history || !Array.isArray(data.history)) return [];
+      if (!Array.isArray(history)) {
+        logger.warn({ response: history, clobTokenId }, 'CLOB getPricesHistory returned non-array');
+        return [];
+      }
 
-      return data.history.map((h) => ({
-        price: h.p,
-        timestamp: h.t,
+      return history.map((h: any) => ({
+        price: h.price ?? h.p ?? 0,
+        timestamp: h.timestamp ?? h.t ?? 0,
       }));
     } catch (error) {
-      logger.error({ error, clobTokenId }, 'Failed to fetch price history');
+      if (error instanceof ApiError) {
+        logger.warn({ status: error.status, error: error.message, clobTokenId }, 'CLOB getPricesHistory API error');
+      } else {
+        logger.error({ error, clobTokenId }, 'Failed to fetch price history');
+      }
       return [];
     }
   }
@@ -58,5 +73,12 @@ export class TradeHistory {
     if (history.length === 0) return [];
     // Take the last 20 price points and approximate size from the interval
     return history.slice(-20).map((h) => ({ price: h.price, size: 10 }));
+  }
+
+  /**
+   * Get the ClobClient instance for advanced operations.
+   */
+  getClient(): ClobClient {
+    return this.client;
   }
 }

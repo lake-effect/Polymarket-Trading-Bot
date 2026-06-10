@@ -452,6 +452,40 @@ bot paper-report
 
 All configuration lives in `config.yaml`. Here's the structure:
 
+### Environment Variables
+
+The bot uses environment variables for sensitive settings and runtime overrides. These take **precedence** over `config.yaml` values.
+
+| Variable | Default | Required? | Description |
+|----------|---------|-----------|-------------|
+| `ENABLE_LIVE_TRADING` | *(unset)* | ❌ No | **Master safety switch.** Must be exactly `'true'` to allow LIVE trading. Even if `config.yaml` has `enable_live_trading: true`, the bot runs in PAPER mode unless this env var is set. Double-opt-in safety mechanism. |
+| `POLYMARKET_API_KEY` | *(unset)* | ⚠️ For LIVE only | API key for authenticating with Polymarket CLOB. If missing, all LIVE orders are silently refused. Not needed for PAPER mode. |
+| `DASHBOARD_PORT` | `3000` | ❌ No | TCP port for the HTTP dashboard server and REST API. |
+| `LOG_LEVEL` | `info` | ❌ No | Pino logger verbosity. Valid values: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Use `debug` for troubleshooting. |
+| `NODE_ENV` | `development` | ❌ No | Standard Node.js flag. Set to `production` in Docker. Influences framework behavior. |
+
+#### Quick Reference
+
+```bash
+# Paper trading (default — no real funds at risk)
+npm start
+
+# Live trading (double opt-in required)
+ENABLE_LIVE_TRADING=true POLYMARKET_API_KEY="your-key-here" npm start
+
+# Custom dashboard port + debug logging
+DASHBOARD_PORT=8080 LOG_LEVEL=debug npm start
+
+# Docker — live trading
+docker run -p 3000:3000 \
+  -e ENABLE_LIVE_TRADING=true \
+  -e POLYMARKET_API_KEY="your-key-here" \
+  polymarket-bot
+```
+
+> ⚠️ **Never commit `POLYMARKET_API_KEY` to version control.** Use `.env` files (already in `.gitignore`) or shell environment exports.
+
+
 ### Environment
 
 ```yaml

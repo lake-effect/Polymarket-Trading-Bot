@@ -2,6 +2,7 @@
    Whale Tracking — Candidate Discovery
    Scans CLOB trades to auto-discover addresses with whale-level activity.
    Ranks candidates by volume, frequency, and breadth.
+   Uses raw fetch for unauthenticated trade endpoints (SDK requires L2 auth).
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
 import { logger } from '../reporting/logs';
@@ -114,6 +115,10 @@ export class WhaleCandidates {
 
   /* ━━━━━━━━━━━━━━ Fetch recent trades ━━━━━━━━━━━━━━ */
 
+  /**
+   * Fetch trades via raw HTTP (unauthenticated public endpoint).
+   * SDK getTrades() requires L2 auth which we don't provision for scanning.
+   */
   private async fetchRecentTrades(): Promise<ClobTradeScan[]> {
     /* Primary: CLOB API */
     try {

@@ -1,3 +1,4 @@
+import { ClobClient, Chain, ApiError } from '@polymarket/clob-client-v2';
 import { logger } from '../reporting/logs';
 
 export interface OrderBookLevel {
@@ -11,11 +12,16 @@ export interface OrderBook {
 }
 
 export class ClobFetcher {
-    private readonly clobApi: string;
+    private readonly client: ClobClient;
     private readonly feeRateCache: Map<string, { rate: number; exponent: number }>;
 
     constructor(clobApi = 'https://clob.polymarket.com') {
-        this.clobApi = clobApi;
+        // Read-only endpoints work without authentication
+        this.client = new ClobClient({
+            host: clobApi,
+            chain: Chain.POLYGON,
+            throwOnError: false,
+        });
         this.feeRateCache = new Map();
     }
 
@@ -26,21 +32,16 @@ export class ClobFetcher {
      *  - asks: ascending (lowest price first)
      */
     async fetchOrderBook(clobTokenId: string): Promise<OrderBook | null> {
-        const url = `${this.clobApi}/book?token_id=${clobTokenId}`;
-
         try {
-            const response = await fetch(url);
-            if (!response.ok) {
-                logger.warn({ status: response.status, clobTokenId }, 'CLOB /book request failed');
+            const book = await this.client.getOrderBook(clobTokenId);
+
+            // SDK returns error object on failure
+            if ('error' in book) {
+                logger.warn({ error: (book as any).error, clobTokenId }, 'CLOB getOrderBook failed');
                 return null;
             }
 
-            const data = await response.json() as {
-                bids: Array<{ price: string; size: string }>;
-                asks: Array<{ price: string; size: string }>;
-            };
-
-            const bids = (data.bids || [])
+            const bids = (book.bids || [])
                 .map(level => ({
                     price: parseFloat(level.price),
                     size: parseFloat(level.size),
@@ -48,7 +49,7 @@ export class ClobFetcher {
                 // Ensure strictly descending for bids (best bid at index 0)
                 .sort((a, b) => b.price - a.price);
 
-            const asks = (data.asks || [])
+            const asks = (book.asks || [])
                 .map(level => ({
                     price: parseFloat(level.price),
                     size: parseFloat(level.size),
@@ -58,8 +59,65 @@ export class ClobFetcher {
 
             return { bids, asks };
         } catch (error) {
-            logger.error({ error, clobTokenId }, 'Failed to fetch order book');
+            if (error instanceof ApiError) {
+                logger.warn({ status: error.status, error: error.message, clobTokenId }, 'CLOB getOrderBook API error');
+            } else {
+                logger.error({ error, clobTokenId }, 'Failed to fetch order book');
+            }
             return null;
+        }
+    }
+
+    /**
+     * Fetch multiple order books in a single batch request.
+     */
+    async fetchOrderBooks(tokenIds: string[]): Promise<Record<string, OrderBook | null>> {
+        const results: Record<string, OrderBook | null> = {};
+        if (tokenIds.length === 0) return results;
+
+        try {
+            const params = tokenIds.map(id => ({ tokenID: id }));
+            const books = await this.client.getOrderBooks(params);
+
+            if ('error' in books) {
+                logger.warn({ error: (books as any).error }, 'CLOB getOrderBooks failed');
+                for (const id of tokenIds) results[id] = null;
+                return results;
+            }
+
+            for (const book of (books as any[])) {
+                const tokenId = book.token_id;
+                if ('error' in book) {
+                    results[tokenId] = null;
+                    continue;
+                }
+
+                const bids = (book.bids || [])
+                    .map(level => ({
+                        price: parseFloat(level.price),
+                        size: parseFloat(level.size),
+                    }))
+                    .sort((a, b) => b.price - a.price);
+
+                const asks = (book.asks || [])
+                    .map(level => ({
+                        price: parseFloat(level.price),
+                        size: parseFloat(level.size),
+                    }))
+                    .sort((a, b) => a.price - b.price);
+
+                results[tokenId] = { bids, asks };
+            }
+
+            return results;
+        } catch (error) {
+            if (error instanceof ApiError) {
+                logger.warn({ status: error.status, error: error.message }, 'CLOB getOrderBooks API error');
+            } else {
+                logger.error({ error }, 'Failed to fetch order books batch');
+            }
+            for (const id of tokenIds) results[id] = null;
+            return results;
         }
     }
 
@@ -72,28 +130,44 @@ export class ClobFetcher {
             return this.feeRateCache.get(clobTokenId)!;
         }
 
-        const url = `${this.clobApi}/fee-rate?token_id=${clobTokenId}`;
+        const defaultFee = { rate: 0, exponent: 0 };
+
         try {
-            const response = await fetch(url);
-            if (!response.ok) {
-                // Return 0 fees by default if the endpoint 404s or fails
-                const defaultFee = { rate: 0, exponent: 0 };
+            const [rateBps, exponent] = await Promise.all([
+                this.client.getFeeRateBps(clobTokenId),
+                this.client.getFeeExponent(clobTokenId),
+            ]);
+
+            // SDK may return error objects
+            if ((typeof rateBps === 'object' && rateBps !== null && 'error' in rateBps) || 
+                (typeof exponent === 'object' && exponent !== null && 'error' in exponent)) {
+                logger.warn({ clobTokenId }, 'CLOB fee rate endpoints returned errors, using defaults');
                 this.feeRateCache.set(clobTokenId, defaultFee);
                 return defaultFee;
             }
 
-            const data = await response.json() as { fee_rate: string; fee_exponent: string };
-            const rate = parseFloat(data.fee_rate || '0');
-            const exponent = parseFloat(data.fee_exponent || '0');
+            // Convert from bps (basis points) to raw rate
+            const rate = Number(rateBps) / 10_000;
+            const exp = Number(exponent);
 
-            const feeInfo = { rate, exponent };
+            const feeInfo = { rate, exponent: exp };
             this.feeRateCache.set(clobTokenId, feeInfo);
             return feeInfo;
         } catch (error) {
-            logger.error({ error, clobTokenId }, 'Failed to fetch fee rate');
-            const defaultFee = { rate: 0, exponent: 0 };
+            if (error instanceof ApiError) {
+                logger.warn({ status: error.status, error: error.message, clobTokenId }, 'CLOB fee rate API error');
+            } else {
+                logger.error({ error, clobTokenId }, 'Failed to fetch fee rate');
+            }
             this.feeRateCache.set(clobTokenId, defaultFee);
             return defaultFee;
         }
+    }
+
+    /**
+     * Get the ClobClient instance for advanced operations.
+     */
+    getClient(): ClobClient {
+        return this.client;
     }
 }

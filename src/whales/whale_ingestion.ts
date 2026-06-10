@@ -2,8 +2,11 @@
    Whale Tracking — Ingestion Pipeline
    Fetches whale trades from Polymarket CLOB API, de-duplicates, normalises,
    enriches with orderbook snapshots, and stores.
+   Uses @polymarket/clob-client-v2 SDK for orderbook data, raw fetch for
+   unauthenticated trade history (SDK getTrades requires L2 auth).
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
+import { ClobClient, Chain } from '@polymarket/clob-client-v2';
 import { logger } from '../reporting/logs';
 import type { WhaleDB } from './whale_db';
 import type { WhaleTrade, WhaleTrackingConfig, AggressorSide } from './whale_types';
@@ -28,7 +31,7 @@ interface ClobTrade {
   type?: string;
 }
 
-/** CLOB orderbook snapshot shape */
+/** CLOB orderbook snapshot shape (from SDK) */
 interface OrderbookSnapshot {
   market: string;
   asset_id: string;
@@ -42,6 +45,7 @@ export class WhaleIngestion {
   private clobApi: string;
   private gammaApi: string;
   private config: WhaleTrackingConfig;
+  private readonly sdkClient: ClobClient;
   private running = false;
   private isPolling = false;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -56,6 +60,12 @@ export class WhaleIngestion {
     this.config = config;
     this.clobApi = clobApi;
     this.gammaApi = gammaApi;
+    // SDK client for orderbook (read-only, no auth needed)
+    this.sdkClient = new ClobClient({
+      host: clobApi,
+      chain: Chain.POLYGON,
+      throwOnError: false,
+    });
   }
 
   /* ━━━━━━━━━━━━━━ Lifecycle ━━━━━━━━━━━━━━ */
@@ -135,7 +145,7 @@ export class WhaleIngestion {
       const feeRate = parseFloat(raw.fee_rate_bps || '0') / 10_000;
       const feeUsd = notional * feeRate;
 
-      // Attempt orderbook snapshot for slippage estimation
+      // Attempt orderbook snapshot for slippage estimation via SDK
       let midpoint: number | null = null;
       let bestBid: number | null = null;
       let bestAsk: number | null = null;
@@ -271,6 +281,10 @@ export class WhaleIngestion {
 
   /* ━━━━━━━━━━━━━━ CLOB API helpers ━━━━━━━━━━━━━━ */
 
+  /**
+   * Fetch trades via raw HTTP (unauthenticated public endpoint).
+   * SDK getTrades() requires L2 auth which we don't have for whale scanning.
+   */
   private async fetchTradesFromClob(
     address: string,
     after?: string,
@@ -286,12 +300,30 @@ export class WhaleIngestion {
     return Array.isArray(data) ? data : (data.trades ?? []);
   }
 
+  /**
+   * Fetch orderbook via SDK (read-only, no auth required).
+   */
   private async fetchOrderbook(tokenId: string): Promise<OrderbookSnapshot | null> {
-    const url = `${this.clobApi}/book?token_id=${tokenId}`;
     this.recordRequest();
-    const res = await this.fetchWithRetry(url);
-    if (!res) return null;
-    return await res.json() as OrderbookSnapshot;
+    try {
+      const book = await this.sdkClient.getOrderBook(tokenId);
+
+      // SDK returns error object on failure
+      if ('error' in book) {
+        logger.debug({ error: (book as any).error, tokenId }, 'SDK getOrderBook failed');
+        return null;
+      }
+
+      return {
+        market: book.market ?? '',
+        asset_id: book.asset_id ?? tokenId,
+        bids: book.bids ?? [],
+        asks: book.asks ?? [],
+        timestamp: Date.now(),
+      };
+    } catch {
+      return null;
+    }
   }
 
   /** Fetch market metadata from Gamma for enrichment */
