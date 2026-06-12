@@ -5,6 +5,7 @@
    Uses raw fetch for unauthenticated trade endpoints (SDK requires L2 auth).
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
+import { ClobClient } from '@polymarket/clob-client-v2';
 import { logger } from '../reporting/logs';
 import type { WhaleDB } from './whale_db';
 import type { WhaleTrackingConfig } from './whale_types';
@@ -25,13 +26,15 @@ export class WhaleCandidates {
   private db: WhaleDB;
   private config: WhaleTrackingConfig;
   private clobApi: string;
+  private readonly sdkClient: ClobClient;
   private running = false;
   private scanTimer: ReturnType<typeof setInterval> | null = null;
 
-  constructor(db: WhaleDB, config: WhaleTrackingConfig, clobApi: string) {
+  constructor(db: WhaleDB, config: WhaleTrackingConfig, clobApi: string, sdkClient: ClobClient) {
     this.db = db;
     this.config = config;
     this.clobApi = clobApi;
+    this.sdkClient = sdkClient;
   }
 
   /* ━━━━━━━━━━━━━━ Lifecycle ━━━━━━━━━━━━━━ */
@@ -116,22 +119,27 @@ export class WhaleCandidates {
   /* ━━━━━━━━━━━━━━ Fetch recent trades ━━━━━━━━━━━━━━ */
 
   /**
-   * Fetch trades via raw HTTP (unauthenticated public endpoint).
-   * SDK getTrades() requires L2 auth which we don't provision for scanning.
+   * Fetch trades via the SDK with a fallback to the public data-api.
    */
   private async fetchRecentTrades(): Promise<ClobTradeScan[]> {
-    /* Primary: CLOB API */
+    /* Primary: SDK */
     try {
-      const url = `${this.clobApi}/trades?limit=500`;
-      const res = await fetch(url);
-      if (res.ok) {
-        const data = await res.json() as ClobTradeScan[] | { trades?: ClobTradeScan[] };
-        return Array.isArray(data) ? data : (data.trades ?? []);
-      }
-      /* CLOB auth failed (401) or other error — fall through to data-api */
-      logger.debug({ status: res.status }, 'CLOB trades unavailable, falling back to data-api');
-    } catch {
-      logger.debug('CLOB trades fetch error, falling back to data-api');
+      logger.debug('Using SDK for candidate scan');
+      const trades = await this.sdkClient.getTrades();
+
+      return trades.map(t => ({
+        id: t.id,
+        market: t.market,
+        asset_id: t.asset_id,
+        side: t.side as 'BUY' | 'SELL',
+        size: String(t.size),
+        price: String(t.price),
+        match_time: t.match_time,
+        owner: t.owner,
+        maker_address: t.maker_address,
+      }));
+    } catch (err) {
+      logger.debug({ err }, 'SDK getTrades failed, falling back to data-api');
     }
 
     /* Fallback: Polymarket data-api (public, no auth required) */

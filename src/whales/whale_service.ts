@@ -13,6 +13,7 @@ import { WhaleCandidates } from './whale_candidates';
 import { ShadowPortfolioManager } from './shadow_portfolio';
 import { WhaleReconciliation } from './whale_reconciliation';
 import { WhaleScanner } from './whale_scanner';
+import { ClobClientProvider } from '../wallets/clob_client_provider';
 import type {
   WhaleTrackingConfig, Whale, WhaleTrade, WhalePosition,
   WhaleScoreBreakdown, TimingWindow, WhaleCandidate,
@@ -36,29 +37,33 @@ export class WhaleService {
   private config: WhaleTrackingConfig;
   private clobApi: string;
   private gammaApi: string;
+  private clientProvider: ClobClientProvider;
   private analyticsTimer: ReturnType<typeof setInterval> | null = null;
   private running = false;
 
-  constructor(config: WhaleTrackingConfig, clobApi: string, gammaApi: string) {
+  constructor(config: WhaleTrackingConfig, clobApi: string, gammaApi: string, clientProvider: ClobClientProvider) {
     this.config = config;
     this.clobApi = clobApi;
     this.gammaApi = gammaApi;
+    this.clientProvider = clientProvider;
   }
 
   /* ━━━━━━━━━━━━━━ Lifecycle ━━━━━━━━━━━━━━ */
 
-  start(): void {
+  async start(): Promise<void> {
     if (this.running) return;
     this.running = true;
 
     // Init DB
     this.db = new WhaleDB(this.config.dbPath);
 
+    const authClient = await this.clientProvider.getAuthenticatedClient();
+
     // Init sub-systems
-    this.ingestion = new WhaleIngestion(this.db, this.config, this.clobApi, this.gammaApi);
+    this.ingestion = new WhaleIngestion(this.db, this.config, this.clobApi, this.gammaApi, authClient);
     this.analytics = new WhaleAnalytics(this.db, this.config);
     this.alerts = new WhaleAlerts(this.db, this.config);
-    this.candidates = new WhaleCandidates(this.db, this.config, this.clobApi);
+    this.candidates = new WhaleCandidates(this.db, this.config, this.clobApi, authClient);
     this.shadow = new ShadowPortfolioManager(this.db, this.config);
     this.reconciliation = new WhaleReconciliation(this.db, this.config, this.ingestion);
     this.scanner = new WhaleScanner(this.db, this.config, this.gammaApi, this.clobApi);

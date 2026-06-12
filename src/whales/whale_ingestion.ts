@@ -55,17 +55,12 @@ export class WhaleIngestion {
   private marketMetadataCache: Map<string, { question: string; slug: string; outcomes: string[] }> = new Map();
   private metadataCacheLoadedAt = 0;
 
-  constructor(db: WhaleDB, config: WhaleTrackingConfig, clobApi: string, gammaApi: string) {
+  constructor(db: WhaleDB, config: WhaleTrackingConfig, clobApi: string, gammaApi: string, sdkClient: ClobClient) {
     this.db = db;
     this.config = config;
     this.clobApi = clobApi;
     this.gammaApi = gammaApi;
-    // SDK client for orderbook (read-only, no auth needed)
-    this.sdkClient = new ClobClient({
-      host: clobApi,
-      chain: Chain.POLYGON,
-      throwOnError: false,
-    });
+    this.sdkClient = sdkClient;
   }
 
   /* ━━━━━━━━━━━━━━ Lifecycle ━━━━━━━━━━━━━━ */
@@ -282,22 +277,43 @@ export class WhaleIngestion {
   /* ━━━━━━━━━━━━━━ CLOB API helpers ━━━━━━━━━━━━━━ */
 
   /**
-   * Fetch trades via raw HTTP (unauthenticated public endpoint).
-   * SDK getTrades() requires L2 auth which we don't have for whale scanning.
+   * Fetch trades via the SDK.
    */
   private async fetchTradesFromClob(
     address: string,
     after?: string,
     limit = 100,
   ): Promise<ClobTrade[]> {
-    let url = `${this.clobApi}/trades?maker_address=${address}&limit=${limit}`;
-    if (after) url += `&after=${encodeURIComponent(after)}`;
-
     this.recordRequest();
-    const res = await this.fetchWithRetry(url);
-    if (!res) return [];
-    const data = await res.json() as ClobTrade[] | { trades?: ClobTrade[] };
-    return Array.isArray(data) ? data : (data.trades ?? []);
+    try {
+      logger.debug({ address, after }, 'Using SDK for trade fetch');
+      const trades = await this.sdkClient.getTrades({
+        maker_address: address,
+        after: after,
+      });
+
+      // The SDK returns an array of Trade objects.
+      // We map it to ClobTrade to maintain compatibility with the rest of the pipeline.
+      return trades.map(t => ({
+        id: t.id,
+        taker_order_id: t.taker_order_id,
+        market: t.market,
+        asset_id: t.asset_id,
+        side: t.side as 'BUY' | 'SELL',
+        size: String(t.size),
+        fee_rate_bps: String(t.fee_rate_bps),
+        price: String(t.price),
+        status: t.status,
+        match_time: t.match_time,
+        owner: t.owner,
+        maker_address: t.maker_address,
+        outcome: t.outcome,
+        type: t.type,
+      }));
+    } catch (err) {
+      logger.error({ err, address }, 'SDK getTrades failed');
+      return [];
+    }
   }
 
   /**

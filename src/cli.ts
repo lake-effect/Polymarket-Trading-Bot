@@ -15,6 +15,7 @@ import { logger } from './reporting/logs';
 import { DashboardServer } from './reporting/dashboard_server';
 import { WhaleService } from './whales/whale_service';
 import { WhaleAPI } from './whales/whale_api';
+import { ClobClientProvider } from './wallets/clob_client_provider';
 import { DEFAULT_WHALE_CONFIG, DEFAULT_SCANNER_CONFIG, DEFAULT_API_POOL_CONFIG, DEFAULT_FAST_SCAN_CONFIG, DEFAULT_EXCHANGE_SOURCES } from './whales/whale_types';
 import type { WhaleTrackingConfig, ScannerConfig } from './whales/whale_types';
 
@@ -182,7 +183,8 @@ program
   .option('-c, --config <path>', 'Config path', 'config.yaml')
   .action(async (options: { config: string }) => {
     const config = loadConfig(options.config);
-    const walletManager = new WalletManager();
+    const clientProvider = new ClobClientProvider();
+    const walletManager = new WalletManager(clientProvider);
     for (const wallet of config.wallets) {
       walletManager.registerWallet(wallet, wallet.strategy, config.environment.enableLiveTrading);
     }
@@ -202,10 +204,10 @@ program
     if (whaleConfig.enabled) {
       const clobApi = config.polymarket?.clobApi ?? 'https://clob.polymarket.com';
       const gammaApi = config.polymarket?.gammaApi ?? 'https://gamma-api.polymarket.com';
-      const whaleService = new WhaleService(whaleConfig, clobApi, gammaApi);
+      const whaleService = new WhaleService(whaleConfig, clobApi, gammaApi, clientProvider);
       const whaleApi = new WhaleAPI(whaleService);
       dashboardServer.setWhaleApi(whaleApi);
-      whaleService.start();
+      await whaleService.start();
       logger.info('Whale Tracking Engine active');
     }
 

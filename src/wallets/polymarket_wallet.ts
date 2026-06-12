@@ -1,15 +1,14 @@
 import { WalletConfig, WalletState, TradeRecord } from '../types';
 import { logger } from '../reporting/logs';
-import { ClobClient, Chain } from '@polymarket/clob-client-v2';
-import { createWalletClient, http } from 'viem';
-import { polygon } from 'viem/chains';
+import { ClobClient } from '@polymarket/clob-client-v2';
+import { ClobClientProvider } from './clob_client_provider';
 
 export class PolymarketWallet {
   private state: WalletState;
   private readonly trades: TradeRecord[] = [];
-  private authenticatedClient: ClobClient | null = null;
+  private readonly clientProvider: ClobClientProvider;
 
-  constructor(config: WalletConfig, assignedStrategy: string) {
+  constructor(config: WalletConfig, assignedStrategy: string, clientProvider: ClobClientProvider) {
     this.state = {
       walletId: config.id,
       mode: 'LIVE',
@@ -26,58 +25,7 @@ export class PolymarketWallet {
         maxDrawdown: config.riskLimits?.maxDrawdown ?? 0.2,
       },
     };
-  }
-
-  /**
-   * Initializes the authenticated ClobClient using the L1 Private Key.
-   * Following the Polymarket SDK pattern: 
-   * 1. Initialize client with L1 Signer.
-   * 2. Derive/Create L2 API Keys using L1 authentication.
-   * 3. Initialize final client with both L1 Signer and L2 Credentials.
-   */
-  private async getAuthenticatedClient(): Promise<ClobClient> {
-    if (this.authenticatedClient) return this.authenticatedClient;
-
-    const privateKey = process.env.POLYMARKET_PRIVATE_KEY;
-    if (!privateKey) {
-      throw new Error(
-        'POLYMARKET_PRIVATE_KEY not set; L1 authentication is required to obtain L2 API credentials.'
-      );
-    }
-
-    try {
-      const signer = createWalletClient({
-        account: `0x${privateKey.replace('0x', '')}`,
-        chain: polygon,
-        transport: http(),
-      });
-
-      logger.info('Initializing L1 authentication to derive L2 API keys...');
-      
-      // Phase 1: L1-only client to fetch L2 credentials
-      const l1Client = new ClobClient({
-        host: 'https://clob.polymarket.com',
-        chain: Chain.POLYGON,
-        signer: signer as any,
-      });
-
-      // Phase 2: Derive L2 API Key using L1 signature
-      const creds = await l1Client.createOrDeriveApiKey();
-      logger.info({ walletId: this.state.walletId }, 'Successfully derived L2 API credentials');
-
-      // Phase 3: Full authenticated client for trade execution
-      this.authenticatedClient = new ClobClient({
-        host: 'https://clob.polymarket.com',
-        chain: Chain.POLYGON,
-        signer: signer as any,
-        creds: creds,
-      });
-
-      return this.authenticatedClient;
-    } catch (error) {
-      logger.error({ error }, 'Failed to authenticate with Polymarket CLOB (L1 -> L2 flow)');
-      throw error;
-    }
+    this.clientProvider = clientProvider;
   }
 
   getState(): WalletState {
@@ -100,7 +48,7 @@ export class PolymarketWallet {
     size: number;
   }): Promise<void> {
     try {
-      const client = await this.getAuthenticatedClient();
+      const client = await this.clientProvider.getAuthenticatedClient();
 
       const marketInfo = await client.getClobMarketInfo(request.marketId);
       const token = marketInfo.t.find(t => t.o === request.outcome);
