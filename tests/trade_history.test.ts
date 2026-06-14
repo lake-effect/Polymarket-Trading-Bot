@@ -33,7 +33,7 @@ describe('TradeHistory — SDK integration', () => {
       mockClient.getPricesHistory.mockResolvedValue(mockHistory);
       const result = await history.fetchPriceHistory('token_123', '1d', 60);
       expect(mockClient.getPricesHistory).toHaveBeenCalledWith({
-        tokenID: 'token_123',
+        market: 'token_123',
         interval: '1d',
         fidelity: 60,
       });

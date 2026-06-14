@@ -86,7 +86,13 @@ describe('ClobFetcher — SDK integration', () => {
       ]);
 
       const results = await fetcher.fetchOrderBooks(['token_1', 'token_2']);
-      expect(mockClient.getOrderBooks).toHaveBeenCalledWith([{ tokenID: 'token_1' }, { tokenID: 'token_2' }]);
+      expect(mockClient.getOrderBooks).toHaveBeenCalledWith([{
+        token_id: 'token_1',
+        side: 'BUY',
+      }, {
+        token_id: 'token_2',
+        side: 'BUY',
+      }]);
       expect(results['token_1']).not.toBeNull();
       expect(results['token_2']).not.toBeNull();
     });

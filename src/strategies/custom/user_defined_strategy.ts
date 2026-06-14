@@ -1,5 +1,7 @@
 import { BaseStrategy } from '../strategy_interface';
 import { Signal, MarketData, OrderRequest } from '../../types';
+import { ExecutionWallet } from '../../wallets/wallet_manager';
+import { StrategyContext } from '../strategy_interface';
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    User-Defined Strategy – Configurable Template
@@ -95,7 +97,7 @@ export class UserDefinedStrategy extends BaseStrategy {
   private positions: UserPosition[] = [];
 
   /* ── Initialization: merge user config over defaults ─────────── */
-  override initialize(context: { wallet: any; config: Record<string, unknown> }): void {
+  override initialize(context: StrategyContext): void {
     super.initialize(context);
     const userCfg = (context.config ?? {}) as Partial<UserParams>;
     this.params = { ...DEFAULTS, ...userCfg };

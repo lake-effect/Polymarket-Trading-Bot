@@ -33,6 +33,7 @@ vi.mock('viem/chains', () => ({
 describe('PolymarketWallet', () => {
   let wallet: PolymarketWallet;
   let mockClient: any;
+  let mockClientProvider: any;
   const walletConfig = {
     id: 'wallet_1',
     mode: 'LIVE' as const,
@@ -50,49 +51,15 @@ describe('PolymarketWallet', () => {
       createAndPostOrder: vi.fn(),
     };
 
+    mockClientProvider = {
+      getAuthenticatedClient: vi.fn().mockResolvedValue(mockClient),
+    };
+
     // Default: ClobClient constructor returns mockClient
     vi.mocked(ClobClient).mockImplementation(() => mockClient);
     vi.mocked(createWalletClient).mockReturnValue({} as any);
 
-    wallet = new PolymarketWallet(walletConfig, 'momentum');
-  });
-
-  describe('Authentication Flow', () => {
-    it('throws error if POLYMARKET_PRIVATE_KEY is missing', async () => {
-      vi.stubEnv('POLYMARKET_PRIVATE_KEY', '');
-
-      // Accessing private method via any for testing
-      await expect((wallet as any).getAuthenticatedClient()).rejects.toThrow(
-        'POLYMARKET_PRIVATE_KEY not set'
-      );
-    });
-
-    it('successfully authenticates and derives L2 keys', async () => {
-      const mockCreds = { apiKey: 'test-api-key', apiSecret: 'test-api-secret', passphrase: 'test-pass' };
-      mockClient.createOrDeriveApiKey.mockResolvedValue(mockCreds);
-
-      const client = await (wallet as any).getAuthenticatedClient();
-
-      expect(ClobClient).toHaveBeenCalledTimes(2);
-      expect(mockClient.createOrDeriveApiKey).toHaveBeenCalled();
-      expect(client).toBe(mockClient);
-    });
-
-    it('caches the authenticated client after first success', async () => {
-      mockClient.createOrDeriveApiKey.mockResolvedValue({});
-
-      await (wallet as any).getAuthenticatedClient();
-      await (wallet as any).getAuthenticatedClient();
-
-      expect(ClobClient).toHaveBeenCalledTimes(2); // Only twice for the first call (L1 then L2)
-    });
-
-    it('throws and logs error if L2 key derivation fails', async () => {
-      const error = new Error('Auth failed');
-      mockClient.createOrDeriveApiKey.mockRejectedValue(error);
-
-      await expect((wallet as any).getAuthenticatedClient()).rejects.toThrow('Auth failed');
-    });
+    wallet = new PolymarketWallet(walletConfig, 'momentum', mockClientProvider);
   });
 
   describe('Order Placement', () => {

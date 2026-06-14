@@ -308,7 +308,7 @@ export class WhaleIngestion {
         owner: t.owner,
         maker_address: t.maker_address,
         outcome: t.outcome,
-        type: t.type,
+        type: (t as any).type,
       }));
     } catch (err) {
       logger.error({ err, address }, 'SDK getTrades failed');

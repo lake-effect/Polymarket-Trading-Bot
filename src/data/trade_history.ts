@@ -10,6 +10,13 @@ export interface PricePoint {
  * Fetches real price history from the Polymarket CLOB API.
  * Uses the official @polymarket/clob-client-v2 SDK.
  */
+interface RawPricePoint {
+  price?: number | string;
+  p?: number | string;
+  timestamp?: number | string;
+  t?: number | string;
+}
+
 export class TradeHistory {
   private readonly client: ClobClient;
 
@@ -34,7 +41,7 @@ export class TradeHistory {
   ): Promise<PricePoint[]> {
     try {
       const history = await this.client.getPricesHistory({
-        tokenID: clobTokenId,
+        market: clobTokenId,
         interval: interval as any, // SDK type is stricter than needed
         fidelity,
       });
@@ -50,9 +57,9 @@ export class TradeHistory {
         return [];
       }
 
-      return history.map((h: any) => ({
-        price: h.price ?? h.p ?? 0,
-        timestamp: h.timestamp ?? h.t ?? 0,
+      return (history as RawPricePoint[]).map((h) => ({
+        price: Number(h.price ?? h.p ?? 0),
+        timestamp: Number(h.timestamp ?? h.t ?? 0),
       }));
     } catch (error) {
       if (error instanceof ApiError) {

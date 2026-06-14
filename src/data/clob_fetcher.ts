@@ -76,7 +76,10 @@ export class ClobFetcher {
         if (tokenIds.length === 0) return results;
 
         try {
-            const params = tokenIds.map(id => ({ tokenID: id }));
+            const params = tokenIds.map(id => ({
+                token_id: id,
+                side: 'BUY' as any // side is required by BookParams but not used for full book fetch
+            }));
             const books = await this.client.getOrderBooks(params);
 
             if ('error' in books) {
@@ -93,14 +96,14 @@ export class ClobFetcher {
                 }
 
                 const bids = (book.bids || [])
-                    .map(level => ({
+                    .map((level: { price: string; size: string }) => ({
                         price: parseFloat(level.price),
                         size: parseFloat(level.size),
                     }))
                     .sort((a, b) => b.price - a.price);
 
                 const asks = (book.asks || [])
-                    .map(level => ({
+                    .map((level: { price: string; size: string }) => ({
                         price: parseFloat(level.price),
                         size: parseFloat(level.size),
                     }))

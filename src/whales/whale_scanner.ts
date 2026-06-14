@@ -1752,7 +1752,7 @@ export class WhaleScanner {
           continue;
         }
         return null;
-      } catch (err: any) {
+      } catch (err: unknown) {
         clearTimeout(timer);
         if (err?.name === 'AbortError') {
           logger.warn({ url, attempt }, 'Scanner fetch timed out after %dms', timeoutMs);

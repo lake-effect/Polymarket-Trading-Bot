@@ -252,7 +252,8 @@ program
   .option('-c, --config <path>', 'Config path', 'config.yaml')
   .action((options: { config: string }) => {
     const config = loadConfig(options.config);
-    const walletManager = new WalletManager();
+    const clientProvider = new ClobClientProvider();
+    const walletManager = new WalletManager(clientProvider);
     for (const wallet of config.wallets) {
       walletManager.registerWallet(wallet, wallet.strategy, config.environment.enableLiveTrading);
     }
@@ -265,7 +266,8 @@ program
   .option('-c, --config <path>', 'Config path', 'config.yaml')
   .action((options: { config: string }) => {
     const config = loadConfig(options.config);
-    const walletManager = new WalletManager();
+    const clientProvider = new ClobClientProvider();
+    const walletManager = new WalletManager(clientProvider);
     for (const wallet of config.wallets) {
       walletManager.registerWallet(wallet, wallet.strategy, config.environment.enableLiveTrading);
     }

@@ -1,6 +1,6 @@
 import { WalletConfig, WalletState, TradeRecord } from '../types';
 import { logger } from '../reporting/logs';
-import { ClobClient } from '@polymarket/clob-client-v2';
+import { ClobClient, Side } from '@polymarket/clob-client-v2';
 import { ClobClientProvider } from './clob_client_provider';
 
 export class PolymarketWallet {
@@ -63,7 +63,7 @@ export class PolymarketWallet {
         tokenID: tokenId,
         price: request.price,
         size: request.size,
-        side: request.side,
+        side: request.side as Side,
       });
 
       const orderId = orderResponse.id || orderResponse.orderID;

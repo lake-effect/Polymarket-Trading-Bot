@@ -3,11 +3,9 @@ import { PolymarketWallet } from './polymarket_wallet';
 import { WalletState, WalletConfig, TradeRecord } from '../types';
 import { logger } from '../reporting/logs';
 
-import { OrderbookLvl } from '../data/orderbook_stream';
+import { OrderbookStream } from '../data/orderbook_stream';
 import { ClobFetcher } from '../data/clob_fetcher';
 import { ClobClientProvider } from './clob_client_provider';
-
-export interface ExecutionWallet {
 
 export interface ExecutionWallet {
   getState(): WalletState;
